@@ -7,24 +7,20 @@ function App() {
   const [permissionStatus, setPermissionStatus] = useState('unknown'); // 'unknown', 'granted', 'denied', 'not-supported'
   const [lastHeading, setLastHeading] = useState(null);
   const [smoothedHeading, setSmoothedHeading] = useState(null);
-  const [headingBuffer, setHeadingBuffer] = useState([]);
   const [location, setLocation] = useState(null);
   const [bearingToStore, setBearingToStore] = useState(0);
-  const animationFrameRef = useRef(null);
-  const pendingHeadingRef = useRef(null);
   const [calibrationOffset, setCalibrationOffset] = useState(0);
   const [isCalibrating, setIsCalibrating] = useState(false);
   
-  // Store coordinates
+  // Store coordinates - exact target location
   const storeCoords = {
-    lat: 40.35200908978224,
-    lng: -74.65258456329845
+    lat: 40.35197644769545,
+    lng: -74.65253626771907
   };
   const [magneticDeclination, setMagneticDeclination] = useState(0);
 
-  // Simplified smoothing function with useCallback
+  // Ultra-simple smoothing for maximum stability
   const smoothHeading = useCallback((newHeading, previousSmoothed) => {
-    // Simple exponential smoothing without complex buffer logic
     if (previousSmoothed === null) {
       return newHeading;
     }
@@ -34,31 +30,20 @@ function App() {
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
     
-    // Use a fixed, moderate smoothing factor
-    const smoothingFactor = 0.3;
+    // Very light smoothing for stability without glitches
+    const smoothingFactor = 0.1;
     
     const smoothed = previousSmoothed + diff * smoothingFactor;
     return ((smoothed % 360) + 360) % 360;
   }, []);
   
-  // Simplified update function using requestAnimationFrame
+  // Direct update without requestAnimationFrame to prevent glitches
   const updateOrientation = useCallback((heading) => {
-    pendingHeadingRef.current = heading;
-    
-    if (animationFrameRef.current === null) {
-      animationFrameRef.current = requestAnimationFrame(() => {
-        const latestHeading = pendingHeadingRef.current;
-        if (latestHeading !== null) {
-          setSmoothedHeading(currentSmoothed => {
-            const smoothed = smoothHeading(latestHeading, currentSmoothed);
-            setDeviceOrientation(smoothed);
-            return smoothed;
-          });
-        }
-        animationFrameRef.current = null;
-        pendingHeadingRef.current = null;
-      });
-    }
+    setSmoothedHeading(currentSmoothed => {
+      const smoothed = smoothHeading(heading, currentSmoothed);
+      setDeviceOrientation(smoothed);
+      return smoothed;
+    });
   }, [smoothHeading]);
 
   useEffect(() => {
@@ -134,12 +119,12 @@ function App() {
       }
       
       if (heading !== null) {
-          // Store raw heading for calibration reference
-          setLastHeading(heading);
-          // Apply calibration offset and magnetic declination
-          const adjustedHeading = (heading + calibrationOffset + magneticDeclination + 360) % 360;
-          updateOrientation(adjustedHeading);
-        }
+        // Store raw heading for calibration reference
+        setLastHeading(heading);
+        // Apply only calibration offset, remove magnetic declination to reduce complexity
+        const adjustedHeading = (heading + calibrationOffset + 360) % 360;
+        updateOrientation(adjustedHeading);
+      }
     };
 
     // Check if device orientation is supported
@@ -171,38 +156,13 @@ function App() {
     // Cleanup
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation);
-      // Cancel any pending animation frame
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
     };
-  }, [updateOrientation, calibrationOffset, magneticDeclination, permissionStatus]);
+  }, [updateOrientation, calibrationOffset, permissionStatus]);
 
   const calculateMagneticDeclination = (lat, lon) => {
-    // Improved magnetic declination calculation using IGRF model approximation
-    const year = new Date().getFullYear();
-    const radLat = lat * Math.PI / 180;
-    const radLon = lon * Math.PI / 180;
-    
-    // More accurate approximation based on location
-    // This is still simplified - real applications should use NOAA or IGRF APIs
-    let declination = 0;
-    
-    // North America approximation (reduced values)
-    if (lat >= 25 && lat <= 70 && lon >= -170 && lon <= -50) {
-      declination = -7.0 + (lat - 40) * 0.1 + (lon + 100) * 0.05;
-    }
-    // Europe approximation (reduced values)
-    else if (lat >= 35 && lat <= 70 && lon >= -10 && lon <= 40) {
-      declination = 1.0 + (lat - 50) * 0.075 + (lon - 15) * 0.025;
-    }
-    // General world approximation (reduced values)
-    else {
-      declination = Math.sin(radLat) * Math.cos(radLon) * 6 + Math.cos(radLat) * 1.5;
-    }
-    
-    return declination;
+    // Simplified - return 0 to eliminate magnetic declination complexity
+    // Focus on pure compass calibration instead
+    return 0;
   };
   
   // Calibration function
