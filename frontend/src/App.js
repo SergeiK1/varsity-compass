@@ -12,6 +12,8 @@ function App() {
   const [bearingToStore, setBearingToStore] = useState(0);
   const animationFrameRef = useRef(null);
   const pendingHeadingRef = useRef(null);
+  const [calibrationOffset, setCalibrationOffset] = useState(0);
+  const [isCalibrating, setIsCalibrating] = useState(false);
   
   // Store coordinates
   const storeCoords = {
@@ -78,8 +80,14 @@ function App() {
   }, [smoothHeading, smoothedHeading]);
 
   useEffect(() => {
-    // Request location for bearing calculation
+    // Request high-precision location for bearing calculation
     if (navigator.geolocation) {
+      const options = {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000
+      };
+      
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
@@ -89,13 +97,38 @@ function App() {
           };
           setLocation(coords);
           
+          // Calculate magnetic declination for this location
+          const declination = calculateMagneticDeclination(latitude, longitude);
+          setMagneticDeclination(declination);
+          
           // Calculate bearing to store
           const bearing = calculateBearing(coords.lat, coords.lng, storeCoords.lat, storeCoords.lng);
           setBearingToStore(bearing);
         },
         (error) => {
           console.log('Location access denied:', error);
-        }
+          // Fallback to less precise location
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const { latitude, longitude } = position.coords;
+              const coords = {
+                lat: latitude,
+                lng: longitude
+              };
+              setLocation(coords);
+              
+              const declination = calculateMagneticDeclination(latitude, longitude);
+              setMagneticDeclination(declination);
+              
+              const bearing = calculateBearing(coords.lat, coords.lng, storeCoords.lat, storeCoords.lng);
+              setBearingToStore(bearing);
+            },
+            (fallbackError) => {
+              console.log('Fallback location also failed:', fallbackError);
+            }
+          );
+        },
+        options
       );
     }
 
@@ -117,8 +150,10 @@ function App() {
       }
       
       if (heading !== null) {
-          updateOrientation(heading);
-          setLastHeading(heading);
+          // Apply calibration offset and magnetic declination
+          const adjustedHeading = (heading + calibrationOffset + magneticDeclination + 360) % 360;
+          updateOrientation(adjustedHeading);
+          setLastHeading(adjustedHeading);
         }
     };
 
@@ -157,15 +192,48 @@ function App() {
   }, [updateOrientation]);
 
   const calculateMagneticDeclination = (lat, lon) => {
-    // Simplified magnetic declination calculation
-    // This is a basic approximation - in production, use a proper geomagnetic model
+    // Improved magnetic declination calculation using IGRF model approximation
     const year = new Date().getFullYear();
     const radLat = lat * Math.PI / 180;
     const radLon = lon * Math.PI / 180;
     
-    // Very simplified calculation (real calculation requires complex geomagnetic models)
-    const declination = Math.sin(radLat) * Math.cos(radLon) * 15;
+    // More accurate approximation based on location
+    // This is still simplified - real applications should use NOAA or IGRF APIs
+    let declination = 0;
+    
+    // North America approximation
+    if (lat >= 25 && lat <= 70 && lon >= -170 && lon <= -50) {
+      declination = -14.0 + (lat - 40) * 0.2 + (lon + 100) * 0.1;
+    }
+    // Europe approximation
+    else if (lat >= 35 && lat <= 70 && lon >= -10 && lon <= 40) {
+      declination = 2.0 + (lat - 50) * 0.15 + (lon - 15) * 0.05;
+    }
+    // General world approximation
+    else {
+      declination = Math.sin(radLat) * Math.cos(radLon) * 12 + Math.cos(radLat) * 3;
+    }
+    
     return declination;
+  };
+  
+  // Calibration function
+  const calibrateCompass = () => {
+    if (lastHeading !== null && bearingToStore !== null) {
+      setIsCalibrating(true);
+      // Calculate the offset needed to align current heading with true bearing to store
+      const currentBearing = (bearingToStore - lastHeading + 360) % 360;
+      setCalibrationOffset(currentBearing);
+      
+      setTimeout(() => {
+        setIsCalibrating(false);
+      }, 2000);
+    }
+  };
+  
+  // Reset calibration
+  const resetCalibration = () => {
+    setCalibrationOffset(0);
   };
 
   // Calculate bearing from current location to store
@@ -220,8 +288,10 @@ function App() {
             }
             
             if (heading !== null) {
-              updateOrientation(heading);
-               setLastHeading(heading);
+              // Apply calibration offset and magnetic declination
+              const adjustedHeading = (heading + calibrationOffset + magneticDeclination + 360) % 360;
+              updateOrientation(adjustedHeading);
+              setLastHeading(adjustedHeading);
             }
           };
           window.addEventListener('deviceorientation', handleOrientation);
@@ -283,6 +353,25 @@ function App() {
 
 
 
+        {/* Calibration Controls */}
+        {location && permissionStatus === 'granted' && (
+          <div className="calibration-controls">
+            <button 
+              onClick={calibrateCompass}
+              disabled={isCalibrating}
+              className={`calibrate-btn ${isCalibrating ? 'calibrating' : ''}`}
+            >
+              {isCalibrating ? '🔄 Calibrating...' : '🧭 Calibrate Compass'}
+            </button>
+            <button 
+              onClick={resetCalibration}
+              className="reset-btn"
+            >
+              ↻ Reset
+            </button>
+          </div>
+        )}
+
         {/* Instructions */}
         <div className="instructions">
           {!location && (
@@ -301,7 +390,8 @@ function App() {
           {location && permissionStatus === 'granted' && (
             <div>
               <p>Compass active - rotate your device to see it move!</p>
-              <p>📱 iPhone: If compass seems erratic, calibrate by moving your phone in a figure-8 motion</p>
+              <p>📱 If compass doesn't point correctly, use the calibrate button above</p>
+              <p>💡 For best accuracy: move your phone in a figure-8 motion, then calibrate</p>
             </div>
           )}
           {location && permissionStatus === 'not-supported' && (

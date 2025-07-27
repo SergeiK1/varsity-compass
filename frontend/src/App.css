@@ -141,6 +141,69 @@ body {
   margin-top: 0.2rem;
 }
 
+/* Calibration Controls */
+.calibration-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.calibrate-btn, .reset-btn {
+  padding: 0.75rem 1.5rem;
+  border: 2px solid #000;
+  border-radius: 12px;
+  background: #fcd030;
+  color: #000;
+  font-size: clamp(0.8rem, 2vw, 1rem);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.calibrate-btn:hover, .reset-btn:hover {
+  background: #f5c842;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.calibrate-btn:active, .reset-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.calibrate-btn.calibrating {
+  background: #e6b800;
+  cursor: not-allowed;
+  animation: pulse 1s infinite;
+}
+
+.calibrate-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.reset-btn {
+  background: #fff;
+  padding: 0.75rem 1rem;
+}
+
+.reset-btn:hover {
+  background: #f0f0f0;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
 .instructions {
   text-align: center;
   color: #000;
@@ -186,6 +249,15 @@ body {
     padding: 0.5rem 1rem;
     font-size: 0.85rem;
   }
+  
+  .calibration-controls {
+    gap: 0.75rem;
+  }
+  
+  .calibrate-btn, .reset-btn {
+    padding: 0.6rem 1.2rem;
+    font-size: 0.85rem;
+  }
 }
 
 @media (max-width: 480px) {
@@ -207,6 +279,18 @@ body {
   .center-distance {
     font-size: 0.9rem;
     padding: 0.3rem 0.5rem;
+  }
+  
+  .calibration-controls {
+    gap: 0.5rem;
+    flex-direction: column;
+  }
+  
+  .calibrate-btn, .reset-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+    width: 100%;
+    max-width: 200px;
   }
 }
 
