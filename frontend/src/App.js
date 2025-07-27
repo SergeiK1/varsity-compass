@@ -7,8 +7,11 @@ function App() {
   const [angle, setAngle] = useState(0);
   const [permissionStatus, setPermissionStatus] = useState('unknown');
   const [distance, setDistance] = useState(null);
+  const [calibrationOffset, setCalibrationOffset] = useState(0);
+  const [lastStableHeading, setLastStableHeading] = useState(null);
   const rotationRef = useRef(0);
   const compassRef = useRef(null);
+  const stabilityCountRef = useRef(0);
   
   // Target coordinates - 234 Nassau St #5, Princeton, NJ 08542
   const targetCoords = {
@@ -150,11 +153,49 @@ function App() {
     };
   }, [permissionStatus]);
 
-  // Update compass rotation based on heading and bearing
+  // Auto-calibration and compass rotation
   useEffect(() => {
     if (userLocation && userHeading !== null) {
       const bearing = getGreatCircleBearing(userLocation, targetCoords);
-      let newAngle = bearing - userHeading;
+      
+      // Auto-calibrate on first stable reading or after significant drift
+      if (lastStableHeading === null) {
+        // Initial calibration - set offset so compass points to target
+        const initialOffset = bearing - userHeading;
+        setCalibrationOffset(initialOffset);
+        setLastStableHeading(userHeading);
+        stabilityCountRef.current = 0;
+      } else {
+        // Check for stability and potential recalibration need
+        const headingDiff = Math.abs(userHeading - lastStableHeading);
+        
+        if (headingDiff < 5) {
+          // Heading is stable, increment stability counter
+          stabilityCountRef.current += 1;
+          
+          // After 10 stable readings, check if recalibration is needed
+          if (stabilityCountRef.current >= 10) {
+            const currentAngleWithOffset = bearing - userHeading - calibrationOffset;
+            const normalizedCurrentAngle = ((currentAngleWithOffset % 360) + 360) % 360;
+            
+            // If compass is significantly off (more than 15 degrees), recalibrate
+            if (Math.abs(normalizedCurrentAngle) > 15 && Math.abs(normalizedCurrentAngle - 360) > 15) {
+              const newOffset = bearing - userHeading;
+              setCalibrationOffset(newOffset);
+              console.log('Auto-recalibrated compass');
+            }
+            
+            stabilityCountRef.current = 0;
+          }
+        } else {
+          // Heading changed significantly, reset stability counter
+          stabilityCountRef.current = 0;
+          setLastStableHeading(userHeading);
+        }
+      }
+      
+      // Calculate compass angle with calibration offset
+      let newAngle = bearing - userHeading - calibrationOffset;
       
       // Normalize angle difference for smooth rotation
       let delta = newAngle - angle;
@@ -173,7 +214,7 @@ function App() {
         rotateCompass(newAngle);
       }
     }
-  }, [userHeading, userLocation, angle]);
+  }, [userHeading, userLocation, angle, calibrationOffset, lastStableHeading]);
 
   const requestPermissions = async () => {
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
