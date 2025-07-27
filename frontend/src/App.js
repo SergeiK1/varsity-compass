@@ -4,7 +4,8 @@ import './App.css';
 function App() {
   const [rotation, setRotation] = useState(0);
   const [deviceOrientation, setDeviceOrientation] = useState(null);
-  const [permissionStatus, setPermissionStatus] = useState('unknown');
+  const [permissionStatus, setPermissionStatus] = useState('unknown'); // 'unknown', 'granted', 'denied', 'not-supported'
+  const [lastHeading, setLastHeading] = useState(null);
   const [location, setLocation] = useState(null);
   const [bearingToStore, setBearingToStore] = useState(0);
   
@@ -39,10 +40,38 @@ function App() {
 
     // Set up device orientation tracking
     const handleOrientation = (event) => {
-      if (event.alpha !== null) {
-        // Use the compass heading directly
-        const heading = event.alpha;
-        setDeviceOrientation(heading);
+      let heading = null;
+      
+      // iOS devices often provide webkitCompassHeading for better accuracy
+      if (event.webkitCompassHeading !== undefined) {
+        // webkitCompassHeading is more accurate on iOS
+        heading = event.webkitCompassHeading;
+      } else if (event.alpha !== null) {
+        // For other devices, use alpha but adjust for iOS
+        heading = event.alpha;
+        // On iOS, alpha might need to be inverted
+        if (navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')) {
+          heading = 360 - heading;
+        }
+      }
+      
+      if (heading !== null) {
+        // Add smoothing to reduce erratic behavior
+        if (lastHeading !== null) {
+          // Calculate the difference, accounting for 360-degree wrap
+          let diff = heading - lastHeading;
+          if (diff > 180) diff -= 360;
+          if (diff < -180) diff += 360;
+          
+          // Only update if change is significant (more than 2 degrees)
+          if (Math.abs(diff) > 2) {
+            setDeviceOrientation(heading);
+            setLastHeading(heading);
+          }
+        } else {
+          setDeviceOrientation(heading);
+          setLastHeading(heading);
+        }
       }
     };
 
@@ -125,9 +154,37 @@ function App() {
           setPermissionStatus('granted');
           // Start listening for orientation changes
           const handleOrientation = (event) => {
-            if (event.alpha !== null) {
-              setDeviceOrientation(event.alpha);
+            let heading = null;
+            
+            // iOS devices often provide webkitCompassHeading for better accuracy
+            if (event.webkitCompassHeading !== undefined) {
+              heading = event.webkitCompassHeading;
+            } else if (event.alpha !== null) {
+              heading = event.alpha;
+              // On iOS, alpha might need to be inverted
+              if (navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')) {
+                heading = 360 - heading;
+              }
             }
+            
+            if (heading !== null) {
+               // Add smoothing to reduce erratic behavior
+               if (lastHeading !== null) {
+                 // Calculate the difference, accounting for 360-degree wrap
+                 let diff = heading - lastHeading;
+                 if (diff > 180) diff -= 360;
+                 if (diff < -180) diff += 360;
+                 
+                 // Only update if change is significant (more than 2 degrees)
+                 if (Math.abs(diff) > 2) {
+                   setDeviceOrientation(heading);
+                   setLastHeading(heading);
+                 }
+               } else {
+                 setDeviceOrientation(heading);
+                 setLastHeading(heading);
+               }
+             }
           };
           window.addEventListener('deviceorientation', handleOrientation);
         } else {
@@ -191,7 +248,11 @@ function App() {
         {/* Instructions */}
         <div className="instructions">
           {!location && (
-            <p>Enable location services to point to store location</p>
+            <div>
+              <p><strong>Enable Location Services:</strong></p>
+              <p>📱 iPhone: Go to Settings → Privacy & Security → Location Services → Safari (or your browser) → Allow "While Using App"</p>
+              <p>Then refresh this page</p>
+            </div>
           )}
           {location && permissionStatus === 'unknown' && (
             <p>Click compass to enable device orientation</p>
@@ -200,7 +261,10 @@ function App() {
             <p>Device orientation denied - compass won't rotate with device</p>
           )}
           {location && permissionStatus === 'granted' && (
-            <p>Compass active - rotate your device to see it move!</p>
+            <div>
+              <p>Compass active - rotate your device to see it move!</p>
+              <p>📱 iPhone: If compass seems erratic, calibrate by moving your phone in a figure-8 motion</p>
+            </div>
           )}
           {location && permissionStatus === 'not-supported' && (
             <p>Device orientation not supported on this device</p>

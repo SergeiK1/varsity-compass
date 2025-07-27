@@ -61,7 +61,7 @@ body {
   position: absolute;
   top: 5%;
   left: 50%;
-  transform-origin: 0 calc(50vh * 0.36);
+  transform-origin: 0 calc(min(40vw, 40vh, 200px));
   background: #000;
 }
 
@@ -78,9 +78,9 @@ body {
 /* Store direction arrow */
 .store-arrow {
   position: absolute;
-  top: 8%;
+  top: 5%;
   left: 50%;
-  transform-origin: 50% 200px;
+  transform-origin: 0 calc(min(40vw, 40vh, 200px));
   width: 0;
   height: 0;
   border-left: 6px solid transparent;
@@ -95,13 +95,14 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 1.2rem;
+  font-size: clamp(1rem, 3vw, 1.2rem);
   font-weight: bold;
   color: #000;
   background: rgba(252, 208, 48, 0.9);
-  padding: 0.5rem;
+  padding: clamp(0.4rem, 1.5vw, 0.6rem);
   border-radius: 8px;
   border: 1px solid #000;
+  white-space: nowrap;
 }
 
 .degree-display {
@@ -148,10 +149,20 @@ body {
   border: 2px solid #000;
   max-width: 90vw;
   font-weight: 500;
+  line-height: 1.4;
 }
 
 .instructions p {
-  margin: 0;
+  margin: 0.3rem 0;
+}
+
+.instructions div p:first-child {
+  margin-bottom: 0.5rem;
+}
+
+.instructions div p:last-child {
+  margin-top: 0.5rem;
+  font-style: italic;
 }
 
 /* Mobile optimizations */
@@ -184,18 +195,70 @@ body {
   .compass-container {
     gap: 1rem;
   }
+  
+  .instructions {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    max-width: 95vw;
+  }
+  
+  .center-distance {
+    font-size: 0.9rem;
+    padding: 0.3rem 0.5rem;
+  }
+}
+
+/* Very small screens */
+@media (max-width: 360px) {
+  .compass {
+    width: min(95vw, 95vh);
+    height: min(95vw, 95vh);
+  }
+  
+  .compass-container {
+    gap: 0.8rem;
+  }
+  
+  .instructions {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.6rem;
+  }
 }
 
 /* Landscape mobile */
 @media (max-height: 600px) and (orientation: landscape) {
   .compass-container {
     flex-direction: row;
-    gap: 2rem;
+    gap: 1.5rem;
+    align-items: center;
+    justify-content: center;
   }
   
   .compass {
-    width: min(70vh, 70vw);
-    height: min(70vh, 70vw);
+    width: min(70vh, 50vw);
+    height: min(70vh, 50vw);
+  }
+  
+  .instructions {
+    max-width: 40vw;
+    font-size: 0.8rem;
+  }
+}
+
+/* Very short landscape screens */
+@media (max-height: 500px) and (orientation: landscape) {
+  .compass {
+    width: min(60vh, 45vw);
+    height: min(60vh, 45vw);
+  }
+  
+  .compass-container {
+    gap: 1rem;
+  }
+  
+  .instructions {
+    font-size: 0.75rem;
+    padding: 0.4rem 0.8rem;
   }
 }
 
