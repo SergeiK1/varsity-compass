@@ -1,280 +1,189 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 function App() {
-  const [rotation, setRotation] = useState(0);
-  const [deviceOrientation, setDeviceOrientation] = useState(null);
-  const [permissionStatus, setPermissionStatus] = useState('unknown'); // 'unknown', 'granted', 'denied', 'not-supported'
-  const [lastHeading, setLastHeading] = useState(null);
-  const [smoothedHeading, setSmoothedHeading] = useState(null);
-  const [location, setLocation] = useState(null);
-  const [bearingToStore, setBearingToStore] = useState(0);
-  const [calibrationOffset, setCalibrationOffset] = useState(0);
-  const [isCalibrating, setIsCalibrating] = useState(false);
-  const [isAutoCalibrated, setIsAutoCalibrated] = useState(false);
-  const [lastUpdateTime, setLastUpdateTime] = useState(0);
-  const [lastRecalibrationTime, setLastRecalibrationTime] = useState(0);
+  const [userLocation, setUserLocation] = useState(null);
+  const [userHeading, setUserHeading] = useState(null);
+  const [angle, setAngle] = useState(0);
+  const [permissionStatus, setPermissionStatus] = useState('unknown');
+  const [distance, setDistance] = useState(null);
+  const rotationRef = useRef(0);
+  const compassRef = useRef(null);
   
-  // Store coordinates - exact target location
-  const storeCoords = {
-    lat: 40.35197644769545,
-    lng: -74.65253626771907
+  // Target coordinates
+  const targetCoords = {
+    latitude: 40.35197644769545,
+    longitude: -74.65253626771907
   };
-  const [magneticDeclination, setMagneticDeclination] = useState(0);
 
-  // Smooth heading with controlled update frequency
-  const smoothHeading = useCallback((newHeading, previousSmoothed) => {
-    if (previousSmoothed === null) {
-      return newHeading;
-    }
+  // Calculate bearing using the same logic as geolib
+  const getGreatCircleBearing = (start, end) => {
+    const startLat = start.latitude * Math.PI / 180;
+    const startLng = start.longitude * Math.PI / 180;
+    const endLat = end.latitude * Math.PI / 180;
+    const endLng = end.longitude * Math.PI / 180;
     
-    // Calculate shortest angular distance
-    let diff = newHeading - previousSmoothed;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
+    const dLng = endLng - startLng;
     
-    // Smoother interpolation for better visual experience
-    const smoothingFactor = 0.2;
+    const y = Math.sin(dLng) * Math.cos(endLat);
+    const x = Math.cos(startLat) * Math.sin(endLat) - Math.sin(startLat) * Math.cos(endLat) * Math.cos(dLng);
     
-    const smoothed = previousSmoothed + diff * smoothingFactor;
-    return ((smoothed % 360) + 360) % 360;
-  }, []);
-  
-  // Throttled update for smoother performance
-  const updateOrientation = useCallback((heading) => {
-    const now = Date.now();
-    // Update every 100ms for smooth but not overwhelming updates
-    if (now - lastUpdateTime > 100) {
-      setSmoothedHeading(currentSmoothed => {
-        const smoothed = smoothHeading(heading, currentSmoothed);
-        setDeviceOrientation(smoothed);
-        return smoothed;
-      });
-      setLastUpdateTime(now);
-    }
-  }, [smoothHeading, lastUpdateTime]);
+    let bearing = Math.atan2(y, x) * 180 / Math.PI;
+    return (bearing + 360) % 360;
+  };
 
+  // Calculate distance using Haversine formula
+  const calculateDistance = (start, end) => {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = (end.latitude - start.latitude) * Math.PI / 180;
+    const dLng = (end.longitude - start.longitude) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(start.latitude * Math.PI / 180) * Math.cos(end.latitude * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return Math.round(R * c);
+  };
+
+  // Smooth rotation function
+  const rotateCompass = (newAngle) => {
+    if (compassRef.current) {
+      rotationRef.current = newAngle;
+      compassRef.current.style.transform = `rotate(${newAngle}deg)`;
+      compassRef.current.style.transition = 'transform 0.3s ease-out';
+    }
+  };
+
+  // Request location permission and start watching
   useEffect(() => {
-    // Request high-precision location for bearing calculation
-    if (navigator.geolocation) {
-      const options = {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000
-      };
-      
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          const coords = {
-            lat: latitude,
-            lng: longitude
-          };
-          setLocation(coords);
-          
-          // Calculate magnetic declination for this location
-          const declination = calculateMagneticDeclination(latitude, longitude);
-          setMagneticDeclination(declination);
-          
-          // Calculate bearing to store
-          const bearing = calculateBearing(coords.lat, coords.lng, storeCoords.lat, storeCoords.lng);
-          setBearingToStore(bearing);
-          
-          // Auto-calibrate on first load
-          if (!isAutoCalibrated && lastHeading !== null) {
-            const autoOffset = (bearing - lastHeading + 360) % 360;
-            setCalibrationOffset(autoOffset);
-            setIsAutoCalibrated(true);
+    const startLocationTracking = async () => {
+      if (!navigator.geolocation) {
+        setPermissionStatus('not-supported');
+        return;
+      }
+
+      try {
+        // Request high accuracy location
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          });
+        });
+
+        const coords = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        };
+        
+        setUserLocation(coords);
+        setDistance(calculateDistance(coords, targetCoords));
+        setPermissionStatus('granted');
+
+        // Start watching position changes
+        navigator.geolocation.watchPosition(
+          (position) => {
+            const newCoords = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude
+            };
+            setUserLocation(newCoords);
+            setDistance(calculateDistance(newCoords, targetCoords));
+          },
+          (error) => console.log('Location watch error:', error),
+          {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 1000
           }
-        },
-        (error) => {
-          console.log('Location access denied:', error);
-          // Fallback to less precise location
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              const { latitude, longitude } = position.coords;
-              const coords = {
-                lat: latitude,
-                lng: longitude
-              };
-              setLocation(coords);
-              
-              const declination = calculateMagneticDeclination(latitude, longitude);
-              setMagneticDeclination(declination);
-              
-              const bearing = calculateBearing(coords.lat, coords.lng, storeCoords.lat, storeCoords.lng);
-              setBearingToStore(bearing);
-              
-              // Auto-calibrate on first load
-              if (!isAutoCalibrated && lastHeading !== null) {
-                const autoOffset = (bearing - lastHeading + 360) % 360;
-                setCalibrationOffset(autoOffset);
-                setIsAutoCalibrated(true);
-              }
-            },
-            (fallbackError) => {
-              console.log('Fallback location also failed:', fallbackError);
-            }
-          );
-        },
-        options
-      );
-    }
+        );
+
+      } catch (error) {
+        console.log('Location permission denied:', error);
+        setPermissionStatus('denied');
+      }
+    };
+
+    startLocationTracking();
   }, []);
-  
+
+  // Start device orientation tracking
   useEffect(() => {
-    // Set up device orientation tracking with improved smoothing
     const handleOrientation = (event) => {
       let heading = null;
       
-      // iOS devices often provide webkitCompassHeading for better accuracy
       if (event.webkitCompassHeading !== undefined) {
-        // webkitCompassHeading is more accurate on iOS
         heading = event.webkitCompassHeading;
       } else if (event.alpha !== null) {
-        // For other devices, use alpha but adjust for iOS
         heading = event.alpha;
-        // On iOS, alpha might need to be inverted
         if (navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')) {
           heading = 360 - heading;
         }
       }
       
       if (heading !== null) {
-        // Store raw heading for calibration reference
-        setLastHeading(heading);
-        
-        // Auto-calibrate if we have location but haven't calibrated yet
-        if (bearingToStore !== null && !isAutoCalibrated) {
-          const autoOffset = (bearingToStore - heading + 360) % 360;
-          setCalibrationOffset(autoOffset);
-          setIsAutoCalibrated(true);
-          setLastRecalibrationTime(Date.now());
-        }
-        
-        // Periodic recalibration every 5 seconds to maintain accuracy
-        const now = Date.now();
-        if (bearingToStore !== null && isAutoCalibrated && (now - lastRecalibrationTime > 5000)) {
-          const currentBearing = (heading + calibrationOffset + 360) % 360;
-          const bearingDiff = Math.abs(currentBearing - bearingToStore);
-          const normalizedDiff = Math.min(bearingDiff, 360 - bearingDiff);
-          
-          // Only recalibrate if we're off by more than 10 degrees
-          if (normalizedDiff > 10) {
-            const correctionOffset = (bearingToStore - heading + 360) % 360;
-            setCalibrationOffset(correctionOffset);
-          }
-          setLastRecalibrationTime(now);
-        }
-        
-        // Apply calibration offset
-        const adjustedHeading = (heading + calibrationOffset + 360) % 360;
-        updateOrientation(adjustedHeading);
+        setUserHeading(heading);
       }
     };
 
-    // Check if device orientation is supported
-    if (window.DeviceOrientationEvent && permissionStatus === 'unknown') {
-      // For iOS 13+ devices, request permission
+    const requestPermissionAndStart = async () => {
       if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission()
-          .then(response => {
-            if (response === 'granted') {
-              window.addEventListener('deviceorientation', handleOrientation);
-              setPermissionStatus('granted');
-            } else {
-              setPermissionStatus('denied');
-            }
-          })
-          .catch(() => setPermissionStatus('denied'));
+        try {
+          const permission = await DeviceOrientationEvent.requestPermission();
+          if (permission === 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation);
+          }
+        } catch (error) {
+          console.log('Orientation permission denied:', error);
+        }
       } else {
-        // For other devices, start listening immediately
         window.addEventListener('deviceorientation', handleOrientation);
-        setPermissionStatus('granted');
       }
-    } else if (permissionStatus === 'granted') {
-      // Add listener if permission already granted
-      window.addEventListener('deviceorientation', handleOrientation);
-    } else if (!window.DeviceOrientationEvent && permissionStatus === 'unknown') {
-      setPermissionStatus('not-supported');
+    };
+
+    if (permissionStatus === 'granted') {
+      requestPermissionAndStart();
     }
 
-    // Cleanup
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation);
     };
-  }, [updateOrientation, calibrationOffset, permissionStatus]);
+  }, [permissionStatus]);
 
-  const calculateMagneticDeclination = (lat, lon) => {
-    // Simplified - return 0 to eliminate magnetic declination complexity
-    // Focus on pure compass calibration instead
-    return 0;
-  };
-  
-  // Manual calibration function
-  const calibrateCompass = () => {
-    if (lastHeading !== null && bearingToStore !== null) {
-      setIsCalibrating(true);
-      // Calculate the offset needed to point the compass arrow to the store
-      const offset = (bearingToStore - lastHeading + 360) % 360;
-      setCalibrationOffset(offset);
-      setIsAutoCalibrated(true);
-      setLastRecalibrationTime(Date.now());
+  // Update compass rotation based on heading and bearing
+  useEffect(() => {
+    if (userLocation && userHeading !== null) {
+      const bearing = getGreatCircleBearing(userLocation, targetCoords);
+      let newAngle = bearing - userHeading;
       
-      setTimeout(() => {
-        setIsCalibrating(false);
-      }, 1500);
+      // Normalize angle difference for smooth rotation
+      let delta = newAngle - angle;
+      while (delta > 180 || delta < -180) {
+        if (delta > 180) {
+          newAngle -= 360;
+        } else if (delta < -180) {
+          newAngle += 360;
+        }
+        delta = newAngle - angle;
+      }
+      
+      // Only update if change is significant (reduces jitter)
+      if (Math.abs(delta) > 2) {
+        setAngle(newAngle);
+        rotateCompass(newAngle);
+      }
     }
-  };
-  
-  // Reset calibration
-  const resetCalibration = () => {
-    setCalibrationOffset(0);
-    setIsAutoCalibrated(false);
-    setLastRecalibrationTime(0);
-  };
+  }, [userHeading, userLocation, angle]);
 
-  // Calculate bearing from current location to store
-  const calculateBearing = (lat1, lng1, lat2, lng2) => {
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const lat1Rad = lat1 * Math.PI / 180;
-    const lat2Rad = lat2 * Math.PI / 180;
-    
-    const y = Math.sin(dLng) * Math.cos(lat2Rad);
-    const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
-    
-    let bearing = Math.atan2(y, x) * 180 / Math.PI;
-    return (bearing + 360) % 360; // Normalize to 0-360
-  };
-
-  // Calculate distance between two coordinates (Haversine formula)
-  const calculateDistance = (lat1, lng1, lat2, lng2) => {
-    const R = 6371; // Earth's radius in kilometers
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c; // Distance in kilometers
-  };
-
-
-
-  const currentRotation = deviceOrientation !== null ? deviceOrientation : rotation;
-
-  // Handle permission request for iOS devices
-  const requestOrientationPermission = async () => {
+  const requestPermissions = async () => {
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
       try {
         const permission = await DeviceOrientationEvent.requestPermission();
         if (permission === 'granted') {
           setPermissionStatus('granted');
-        } else {
-          setPermissionStatus('denied');
         }
       } catch (error) {
-        setPermissionStatus('denied');
+        console.log('Permission request failed:', error);
       }
     }
   };
@@ -282,20 +191,13 @@ function App() {
   return (
     <div className="compass-app">
       <div className="compass-container">
-        <div 
-          className="compass" 
-          style={{
-            transform: `rotate(${-currentRotation + bearingToStore}deg)`
-          }}
-          onClick={requestOrientationPermission}
-        >
-          {/* Directional tick marks */}
+        <div className="compass" ref={compassRef}>
+          {/* Compass ring with tick marks */}
           <div className="compass-ring">
             {Array.from({ length: 8 }, (_, i) => {
-              const isCardinal = i % 2 === 0; // N, E, S, W are at even indices
+              const isCardinal = i % 2 === 0;
               const angle = i * 45;
               
-              // Replace the north tick (0 degrees) with store direction arrow
               if (i === 0) {
                 return (
                   <div
@@ -316,62 +218,45 @@ function App() {
             })}
           </div>
 
-          {/* No cardinal direction labels for minimal design */}
-          
-          {/* Distance display in center */}
-          {location && (
+          {/* Distance display */}
+          {distance && (
             <div className="center-distance">
-              {Math.round(calculateDistance(location.lat, location.lng, storeCoords.lat, storeCoords.lng) * 1000)}m
+              {distance}m
             </div>
           )}
         </div>
 
-
-
-        {/* Calibration Controls */}
-        {location && permissionStatus === 'granted' && (
-          <div className="calibration-controls">
-            <button 
-              onClick={calibrateCompass}
-              disabled={isCalibrating}
-              className={`calibrate-btn ${isCalibrating ? 'calibrating' : ''}`}
-            >
-              {isCalibrating ? '🔄 Calibrating...' : '🧭 Calibrate Compass'}
-            </button>
-            <button 
-              onClick={resetCalibration}
-              className="reset-btn"
-            >
-              ↻ Reset
-            </button>
-          </div>
-        )}
-
         {/* Instructions */}
         <div className="instructions">
-          {!location && (
+          {permissionStatus === 'unknown' && (
+            <p>Requesting location and orientation permissions...</p>
+          )}
+          {permissionStatus === 'denied' && (
             <div>
-              <p><strong>Enable Location Services:</strong></p>
-              <p>📱 iPhone: Go to Settings → Privacy & Security → Location Services → Safari (or your browser) → Allow "While Using App"</p>
-              <p>Then refresh this page</p>
+              <p><strong>Location access required</strong></p>
+              <p>Please enable location services and refresh the page</p>
             </div>
           )}
-          {location && permissionStatus === 'unknown' && (
-            <p>Click compass to enable device orientation</p>
-          )}
-          {location && permissionStatus === 'denied' && (
-            <p>Device orientation denied - compass won't rotate with device</p>
-          )}
-          {location && permissionStatus === 'granted' && (
-            <div>
-              <p>🧭 Compass auto-calibrated and active!</p>
-              <p>📍 Automatically pointing to target location</p>
-              <p>🔄 Self-correcting every 5 seconds for accuracy</p>
-              <p>💡 Manual calibrate if needed, or reset to recalibrate</p>
-            </div>
-          )}
-          {location && permissionStatus === 'not-supported' && (
+          {permissionStatus === 'not-supported' && (
             <p>Device orientation not supported on this device</p>
+          )}
+          {permissionStatus === 'granted' && !userLocation && (
+            <p>Getting your location...</p>
+          )}
+          {permissionStatus === 'granted' && userLocation && userHeading === null && (
+            <div>
+              <p>Location found! Now requesting compass access...</p>
+              <button onClick={requestPermissions} className="permission-btn">
+                Enable Compass
+              </button>
+            </div>
+          )}
+          {permissionStatus === 'granted' && userLocation && userHeading !== null && (
+            <div>
+              <p>🧭 Compass active and pointing to target!</p>
+              <p>📍 Distance: {distance}m</p>
+              <p>🎯 Follow the arrow to reach your destination</p>
+            </div>
           )}
         </div>
       </div>
