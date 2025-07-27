@@ -11,6 +11,9 @@ function App() {
   const [bearingToStore, setBearingToStore] = useState(0);
   const [calibrationOffset, setCalibrationOffset] = useState(0);
   const [isCalibrating, setIsCalibrating] = useState(false);
+  const [isAutoCalibrated, setIsAutoCalibrated] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState(0);
+  const [lastRecalibrationTime, setLastRecalibrationTime] = useState(0);
   
   // Store coordinates - exact target location
   const storeCoords = {
@@ -19,7 +22,7 @@ function App() {
   };
   const [magneticDeclination, setMagneticDeclination] = useState(0);
 
-  // Ultra-simple smoothing for maximum stability
+  // Smooth heading with controlled update frequency
   const smoothHeading = useCallback((newHeading, previousSmoothed) => {
     if (previousSmoothed === null) {
       return newHeading;
@@ -30,21 +33,26 @@ function App() {
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
     
-    // Very light smoothing for stability without glitches
-    const smoothingFactor = 0.1;
+    // Smoother interpolation for better visual experience
+    const smoothingFactor = 0.2;
     
     const smoothed = previousSmoothed + diff * smoothingFactor;
     return ((smoothed % 360) + 360) % 360;
   }, []);
   
-  // Direct update without requestAnimationFrame to prevent glitches
+  // Throttled update for smoother performance
   const updateOrientation = useCallback((heading) => {
-    setSmoothedHeading(currentSmoothed => {
-      const smoothed = smoothHeading(heading, currentSmoothed);
-      setDeviceOrientation(smoothed);
-      return smoothed;
-    });
-  }, [smoothHeading]);
+    const now = Date.now();
+    // Update every 100ms for smooth but not overwhelming updates
+    if (now - lastUpdateTime > 100) {
+      setSmoothedHeading(currentSmoothed => {
+        const smoothed = smoothHeading(heading, currentSmoothed);
+        setDeviceOrientation(smoothed);
+        return smoothed;
+      });
+      setLastUpdateTime(now);
+    }
+  }, [smoothHeading, lastUpdateTime]);
 
   useEffect(() => {
     // Request high-precision location for bearing calculation
@@ -71,6 +79,13 @@ function App() {
           // Calculate bearing to store
           const bearing = calculateBearing(coords.lat, coords.lng, storeCoords.lat, storeCoords.lng);
           setBearingToStore(bearing);
+          
+          // Auto-calibrate on first load
+          if (!isAutoCalibrated && lastHeading !== null) {
+            const autoOffset = (bearing - lastHeading + 360) % 360;
+            setCalibrationOffset(autoOffset);
+            setIsAutoCalibrated(true);
+          }
         },
         (error) => {
           console.log('Location access denied:', error);
@@ -89,6 +104,13 @@ function App() {
               
               const bearing = calculateBearing(coords.lat, coords.lng, storeCoords.lat, storeCoords.lng);
               setBearingToStore(bearing);
+              
+              // Auto-calibrate on first load
+              if (!isAutoCalibrated && lastHeading !== null) {
+                const autoOffset = (bearing - lastHeading + 360) % 360;
+                setCalibrationOffset(autoOffset);
+                setIsAutoCalibrated(true);
+              }
             },
             (fallbackError) => {
               console.log('Fallback location also failed:', fallbackError);
@@ -121,7 +143,31 @@ function App() {
       if (heading !== null) {
         // Store raw heading for calibration reference
         setLastHeading(heading);
-        // Apply only calibration offset, remove magnetic declination to reduce complexity
+        
+        // Auto-calibrate if we have location but haven't calibrated yet
+        if (bearingToStore !== null && !isAutoCalibrated) {
+          const autoOffset = (bearingToStore - heading + 360) % 360;
+          setCalibrationOffset(autoOffset);
+          setIsAutoCalibrated(true);
+          setLastRecalibrationTime(Date.now());
+        }
+        
+        // Periodic recalibration every 5 seconds to maintain accuracy
+        const now = Date.now();
+        if (bearingToStore !== null && isAutoCalibrated && (now - lastRecalibrationTime > 5000)) {
+          const currentBearing = (heading + calibrationOffset + 360) % 360;
+          const bearingDiff = Math.abs(currentBearing - bearingToStore);
+          const normalizedDiff = Math.min(bearingDiff, 360 - bearingDiff);
+          
+          // Only recalibrate if we're off by more than 10 degrees
+          if (normalizedDiff > 10) {
+            const correctionOffset = (bearingToStore - heading + 360) % 360;
+            setCalibrationOffset(correctionOffset);
+          }
+          setLastRecalibrationTime(now);
+        }
+        
+        // Apply calibration offset
         const adjustedHeading = (heading + calibrationOffset + 360) % 360;
         updateOrientation(adjustedHeading);
       }
@@ -165,24 +211,27 @@ function App() {
     return 0;
   };
   
-  // Calibration function
+  // Manual calibration function
   const calibrateCompass = () => {
     if (lastHeading !== null && bearingToStore !== null) {
       setIsCalibrating(true);
       // Calculate the offset needed to point the compass arrow to the store
-      // The offset should make the current heading point to the store bearing
       const offset = (bearingToStore - lastHeading + 360) % 360;
       setCalibrationOffset(offset);
+      setIsAutoCalibrated(true);
+      setLastRecalibrationTime(Date.now());
       
       setTimeout(() => {
         setIsCalibrating(false);
-      }, 2000);
+      }, 1500);
     }
   };
   
   // Reset calibration
   const resetCalibration = () => {
     setCalibrationOffset(0);
+    setIsAutoCalibrated(false);
+    setLastRecalibrationTime(0);
   };
 
   // Calculate bearing from current location to store
@@ -315,9 +364,10 @@ function App() {
           )}
           {location && permissionStatus === 'granted' && (
             <div>
-              <p>Compass active - rotate your device to see it move!</p>
-              <p>📱 If compass doesn't point correctly, use the calibrate button above</p>
-              <p>💡 For best accuracy: move your phone in a figure-8 motion, then calibrate</p>
+              <p>🧭 Compass auto-calibrated and active!</p>
+              <p>📍 Automatically pointing to target location</p>
+              <p>🔄 Self-correcting every 5 seconds for accuracy</p>
+              <p>💡 Manual calibrate if needed, or reset to recalibrate</p>
             </div>
           )}
           {location && permissionStatus === 'not-supported' && (
