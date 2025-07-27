@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 
 function App() {
@@ -6,8 +6,12 @@ function App() {
   const [deviceOrientation, setDeviceOrientation] = useState(null);
   const [permissionStatus, setPermissionStatus] = useState('unknown'); // 'unknown', 'granted', 'denied', 'not-supported'
   const [lastHeading, setLastHeading] = useState(null);
+  const [smoothedHeading, setSmoothedHeading] = useState(null);
+  const [headingBuffer, setHeadingBuffer] = useState([]);
   const [location, setLocation] = useState(null);
   const [bearingToStore, setBearingToStore] = useState(0);
+  const animationFrameRef = useRef(null);
+  const pendingHeadingRef = useRef(null);
   
   // Store coordinates
   const storeCoords = {
@@ -38,7 +42,64 @@ function App() {
       );
     }
 
-    // Set up device orientation tracking
+    // Optimized smoothing function with useCallback
+    const smoothHeading = useCallback((newHeading, previousSmoothed, buffer) => {
+      // Simple but effective exponential smoothing
+      if (previousSmoothed === null) {
+        return { smoothed: newHeading, buffer: [newHeading] };
+      }
+      
+      // Calculate shortest angular distance
+      let diff = newHeading - previousSmoothed;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      
+      // Adaptive smoothing based on movement speed
+      const movementSpeed = Math.abs(diff);
+      let smoothingFactor;
+      
+      if (movementSpeed > 30) {
+        smoothingFactor = 0.7; // Very responsive for fast movements
+      } else if (movementSpeed > 10) {
+        smoothingFactor = 0.4; // Moderately responsive
+      } else {
+        smoothingFactor = 0.2; // Smooth for small movements
+      }
+      
+      const smoothed = previousSmoothed + diff * smoothingFactor;
+      const normalizedSmoothed = ((smoothed % 360) + 360) % 360;
+      
+      // Keep a small buffer for additional stability
+      const newBuffer = [...buffer, newHeading].slice(-3);
+      
+      return { smoothed: normalizedSmoothed, buffer: newBuffer };
+    }, []);
+    
+    // Throttled update function using requestAnimationFrame
+    const updateOrientation = useCallback((heading) => {
+      pendingHeadingRef.current = heading;
+      
+      if (animationFrameRef.current === null) {
+        animationFrameRef.current = requestAnimationFrame(() => {
+          const latestHeading = pendingHeadingRef.current;
+          if (latestHeading !== null) {
+            setHeadingBuffer(currentBuffer => {
+              setSmoothedHeading(currentSmoothed => {
+                const result = smoothHeading(latestHeading, currentSmoothed, currentBuffer);
+                setDeviceOrientation(result.smoothed);
+                return result.smoothed;
+              });
+              const result = smoothHeading(latestHeading, smoothedHeading, currentBuffer);
+              return result.buffer;
+            });
+          }
+          animationFrameRef.current = null;
+          pendingHeadingRef.current = null;
+        });
+      }
+    }, [smoothHeading, smoothedHeading]);
+
+    // Set up device orientation tracking with improved smoothing
     const handleOrientation = (event) => {
       let heading = null;
       
@@ -56,23 +117,9 @@ function App() {
       }
       
       if (heading !== null) {
-        // Add smoothing to reduce erratic behavior
-        if (lastHeading !== null) {
-          // Calculate the difference, accounting for 360-degree wrap
-          let diff = heading - lastHeading;
-          if (diff > 180) diff -= 360;
-          if (diff < -180) diff += 360;
-          
-          // Only update if change is significant (more than 2 degrees)
-          if (Math.abs(diff) > 2) {
-            setDeviceOrientation(heading);
-            setLastHeading(heading);
-          }
-        } else {
-          setDeviceOrientation(heading);
+          updateOrientation(heading);
           setLastHeading(heading);
         }
-      }
     };
 
     // Check if device orientation is supported
@@ -101,6 +148,11 @@ function App() {
     // Cleanup
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation);
+      // Cancel any pending animation frame
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
     };
   }, []);
 
@@ -168,23 +220,9 @@ function App() {
             }
             
             if (heading !== null) {
-               // Add smoothing to reduce erratic behavior
-               if (lastHeading !== null) {
-                 // Calculate the difference, accounting for 360-degree wrap
-                 let diff = heading - lastHeading;
-                 if (diff > 180) diff -= 360;
-                 if (diff < -180) diff += 360;
-                 
-                 // Only update if change is significant (more than 2 degrees)
-                 if (Math.abs(diff) > 2) {
-                   setDeviceOrientation(heading);
-                   setLastHeading(heading);
-                 }
-               } else {
-                 setDeviceOrientation(heading);
-                 setLastHeading(heading);
-               }
-             }
+              updateOrientation(heading);
+               setLastHeading(heading);
+            }
           };
           window.addEventListener('deviceorientation', handleOrientation);
         } else {
