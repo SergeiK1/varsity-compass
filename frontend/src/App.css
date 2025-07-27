@@ -40,7 +40,7 @@ body {
   background: transparent;
   border: 4px solid #000000;
   cursor: pointer;
-  transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
 }
 
@@ -63,6 +63,7 @@ body {
   left: 50%;
   transform-origin: 0 calc(min(40vw, 40vh, 200px));
   background: #000;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .tick-mark.cardinal-tick {
@@ -87,6 +88,7 @@ body {
   border-right: 6px solid transparent;
   border-bottom: 12px solid #000;
   transform: translateX(-50%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Center distance display */
@@ -262,9 +264,44 @@ body {
   }
 }
 
+/* Desktop optimizations */
+@media (min-width: 769px) {
+  .tick-mark {
+    transform-origin: 0 200px;
+  }
+  
+  .store-arrow {
+    transform-origin: 0 200px;
+  }
+}
+
+/* Large desktop screens */
+@media (min-width: 1200px) {
+  .compass {
+    width: 400px;
+    height: 400px;
+  }
+  
+  .tick-mark {
+    transform-origin: 0 200px;
+  }
+  
+  .store-arrow {
+    transform-origin: 0 200px;
+  }
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .compass {
+    transition: none;
+  }
+  
+  .tick-mark {
+    transition: none;
+  }
+  
+  .store-arrow {
     transition: none;
   }
 }
