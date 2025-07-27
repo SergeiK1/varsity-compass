@@ -22,11 +22,11 @@ function App() {
   };
   const [magneticDeclination, setMagneticDeclination] = useState(0);
 
-  // Optimized smoothing function with useCallback
-  const smoothHeading = useCallback((newHeading, previousSmoothed, buffer) => {
-    // Simple but effective exponential smoothing
+  // Simplified smoothing function with useCallback
+  const smoothHeading = useCallback((newHeading, previousSmoothed) => {
+    // Simple exponential smoothing without complex buffer logic
     if (previousSmoothed === null) {
-      return { smoothed: newHeading, buffer: [newHeading] };
+      return newHeading;
     }
     
     // Calculate shortest angular distance
@@ -34,28 +34,14 @@ function App() {
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
     
-    // Adaptive smoothing based on movement speed
-    const movementSpeed = Math.abs(diff);
-    let smoothingFactor;
-    
-    if (movementSpeed > 30) {
-      smoothingFactor = 0.7; // Very responsive for fast movements
-    } else if (movementSpeed > 10) {
-      smoothingFactor = 0.4; // Moderately responsive
-    } else {
-      smoothingFactor = 0.2; // Smooth for small movements
-    }
+    // Use a fixed, moderate smoothing factor
+    const smoothingFactor = 0.3;
     
     const smoothed = previousSmoothed + diff * smoothingFactor;
-    const normalizedSmoothed = ((smoothed % 360) + 360) % 360;
-    
-    // Keep a small buffer for additional stability
-    const newBuffer = [...buffer, newHeading].slice(-3);
-    
-    return { smoothed: normalizedSmoothed, buffer: newBuffer };
+    return ((smoothed % 360) + 360) % 360;
   }, []);
   
-  // Throttled update function using requestAnimationFrame
+  // Simplified update function using requestAnimationFrame
   const updateOrientation = useCallback((heading) => {
     pendingHeadingRef.current = heading;
     
@@ -63,21 +49,17 @@ function App() {
       animationFrameRef.current = requestAnimationFrame(() => {
         const latestHeading = pendingHeadingRef.current;
         if (latestHeading !== null) {
-          setHeadingBuffer(currentBuffer => {
-            setSmoothedHeading(currentSmoothed => {
-              const result = smoothHeading(latestHeading, currentSmoothed, currentBuffer);
-              setDeviceOrientation(result.smoothed);
-              return result.smoothed;
-            });
-            const result = smoothHeading(latestHeading, smoothedHeading, currentBuffer);
-            return result.buffer;
+          setSmoothedHeading(currentSmoothed => {
+            const smoothed = smoothHeading(latestHeading, currentSmoothed);
+            setDeviceOrientation(smoothed);
+            return smoothed;
           });
         }
         animationFrameRef.current = null;
         pendingHeadingRef.current = null;
       });
     }
-  }, [smoothHeading, smoothedHeading]);
+  }, [smoothHeading]);
 
   useEffect(() => {
     // Request high-precision location for bearing calculation
@@ -131,7 +113,9 @@ function App() {
         options
       );
     }
-
+  }, []);
+  
+  useEffect(() => {
     // Set up device orientation tracking with improved smoothing
     const handleOrientation = (event) => {
       let heading = null;
@@ -150,15 +134,16 @@ function App() {
       }
       
       if (heading !== null) {
+          // Store raw heading for calibration reference
+          setLastHeading(heading);
           // Apply calibration offset and magnetic declination
           const adjustedHeading = (heading + calibrationOffset + magneticDeclination + 360) % 360;
           updateOrientation(adjustedHeading);
-          setLastHeading(adjustedHeading);
         }
     };
 
     // Check if device orientation is supported
-    if (window.DeviceOrientationEvent) {
+    if (window.DeviceOrientationEvent && permissionStatus === 'unknown') {
       // For iOS 13+ devices, request permission
       if (typeof DeviceOrientationEvent.requestPermission === 'function') {
         DeviceOrientationEvent.requestPermission()
@@ -176,7 +161,10 @@ function App() {
         window.addEventListener('deviceorientation', handleOrientation);
         setPermissionStatus('granted');
       }
-    } else {
+    } else if (permissionStatus === 'granted') {
+      // Add listener if permission already granted
+      window.addEventListener('deviceorientation', handleOrientation);
+    } else if (!window.DeviceOrientationEvent && permissionStatus === 'unknown') {
       setPermissionStatus('not-supported');
     }
 
@@ -189,7 +177,7 @@ function App() {
         animationFrameRef.current = null;
       }
     };
-  }, [updateOrientation]);
+  }, [updateOrientation, calibrationOffset, magneticDeclination, permissionStatus]);
 
   const calculateMagneticDeclination = (lat, lon) => {
     // Improved magnetic declination calculation using IGRF model approximation
@@ -201,17 +189,17 @@ function App() {
     // This is still simplified - real applications should use NOAA or IGRF APIs
     let declination = 0;
     
-    // North America approximation
+    // North America approximation (reduced values)
     if (lat >= 25 && lat <= 70 && lon >= -170 && lon <= -50) {
-      declination = -14.0 + (lat - 40) * 0.2 + (lon + 100) * 0.1;
+      declination = -7.0 + (lat - 40) * 0.1 + (lon + 100) * 0.05;
     }
-    // Europe approximation
+    // Europe approximation (reduced values)
     else if (lat >= 35 && lat <= 70 && lon >= -10 && lon <= 40) {
-      declination = 2.0 + (lat - 50) * 0.15 + (lon - 15) * 0.05;
+      declination = 1.0 + (lat - 50) * 0.075 + (lon - 15) * 0.025;
     }
-    // General world approximation
+    // General world approximation (reduced values)
     else {
-      declination = Math.sin(radLat) * Math.cos(radLon) * 12 + Math.cos(radLat) * 3;
+      declination = Math.sin(radLat) * Math.cos(radLon) * 6 + Math.cos(radLat) * 1.5;
     }
     
     return declination;
@@ -221,9 +209,10 @@ function App() {
   const calibrateCompass = () => {
     if (lastHeading !== null && bearingToStore !== null) {
       setIsCalibrating(true);
-      // Calculate the offset needed to align current heading with true bearing to store
-      const currentBearing = (bearingToStore - lastHeading + 360) % 360;
-      setCalibrationOffset(currentBearing);
+      // Calculate the offset needed to point the compass arrow to the store
+      // The offset should make the current heading point to the store bearing
+      const offset = (bearingToStore - lastHeading + 360) % 360;
+      setCalibrationOffset(offset);
       
       setTimeout(() => {
         setIsCalibrating(false);
@@ -272,29 +261,6 @@ function App() {
         const permission = await DeviceOrientationEvent.requestPermission();
         if (permission === 'granted') {
           setPermissionStatus('granted');
-          // Start listening for orientation changes
-          const handleOrientation = (event) => {
-            let heading = null;
-            
-            // iOS devices often provide webkitCompassHeading for better accuracy
-            if (event.webkitCompassHeading !== undefined) {
-              heading = event.webkitCompassHeading;
-            } else if (event.alpha !== null) {
-              heading = event.alpha;
-              // On iOS, alpha might need to be inverted
-              if (navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')) {
-                heading = 360 - heading;
-              }
-            }
-            
-            if (heading !== null) {
-              // Apply calibration offset and magnetic declination
-              const adjustedHeading = (heading + calibrationOffset + magneticDeclination + 360) % 360;
-              updateOrientation(adjustedHeading);
-              setLastHeading(adjustedHeading);
-            }
-          };
-          window.addEventListener('deviceorientation', handleOrientation);
         } else {
           setPermissionStatus('denied');
         }
