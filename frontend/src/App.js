@@ -89,7 +89,8 @@ function App() {
   // 3️⃣ Smooth rotation toward target
   useEffect(() => {
     if (userLocation == null) return;
-    const targetRot = (bearingToTarget - deviceHeading + 360) % 360;
+    // Fix: Reverse the calculation to point correctly
+    const targetRot = (deviceHeading - bearingToTarget + 360) % 360;
     setSmoothedRotation((prev) => {
       let diff = targetRot - prev;
       if (diff > 180) diff -= 360;
