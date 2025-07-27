@@ -44,10 +44,6 @@ body {
   user-select: none;
 }
 
-.compass:hover {
-  /* No hover effects for minimal design */
-}
-
 .compass-ring {
   position: absolute;
   top: 0;

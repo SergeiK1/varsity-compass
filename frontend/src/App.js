@@ -10,10 +10,10 @@ function App() {
   const rotationRef = useRef(0);
   const compassRef = useRef(null);
   
-  // Target coordinates
+  // Target coordinates - 234 Nassau St #5, Princeton, NJ 08542
   const targetCoords = {
-    latitude: 40.35197644769545,
-    longitude: -74.65253626771907
+    latitude: 40.35209091502681,
+    longitude: -74.6525577253915
   };
 
   // Calculate bearing using the same logic as geolib
