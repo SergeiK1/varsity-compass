@@ -121,16 +121,35 @@ function App() {
     };
   }, [permissionStatus]);
 
-  // Calculate rotation for compass arrow
-  const rotation = userLocation ? (bearingToTarget - deviceHeading + 360) % 360 : 0;
+  // Calculate rotation for compass arrow with smoothing
+  const [smoothedRotation, setSmoothedRotation] = useState(0);
+  
+  useEffect(() => {
+    if (userLocation && deviceHeading !== null && bearingToTarget !== null) {
+      const targetRotation = (bearingToTarget - deviceHeading + 360) % 360;
+      
+      setSmoothedRotation(prevRotation => {
+        // Calculate the shortest angular distance
+        let diff = targetRotation - prevRotation;
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        
+        // Apply smoothing - only move a fraction of the difference
+        const smoothingFactor = 0.15; // Adjust this value (0.1-0.3) for more/less smoothing
+        const newRotation = (prevRotation + diff * smoothingFactor + 360) % 360;
+        
+        return newRotation;
+      });
+    }
+  }, [userLocation, deviceHeading, bearingToTarget]);
 
   // Apply rotation to compass
   useEffect(() => {
     if (compassRef.current && userLocation) {
-      compassRef.current.style.transform = `rotate(${rotation}deg)`;
-      compassRef.current.style.transition = 'transform 0.3s ease-out';
+      compassRef.current.style.transform = `rotate(${smoothedRotation}deg)`;
+      compassRef.current.style.transition = 'transform 0.2s ease-out';
     }
-  }, [rotation, userLocation]);
+  }, [smoothedRotation, userLocation]);
 
   const requestPermissions = async () => {
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
