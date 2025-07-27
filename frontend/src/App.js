@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
 
 function App() {
   const [userLocation, setUserLocation] = useState(null);
-  const [userHeading, setUserHeading] = useState(null);
-  const [angle, setAngle] = useState(0);
+  const [deviceHeading, setDeviceHeading] = useState(0);
+  const [bearingToTarget, setBearingToTarget] = useState(0);
   const [permissionStatus, setPermissionStatus] = useState('unknown');
   const [distance, setDistance] = useState(null);
-  const rotationRef = useRef(0);
   const compassRef = useRef(null);
   
   // Target coordinates - 234 Nassau St #5, Princeton, NJ 08542
@@ -16,7 +15,7 @@ function App() {
     longitude: -74.6525577253915
   };
 
-  // Calculate bearing using the same logic as geolib
+  // Calculate great circle bearing (same as geolib)
   const getGreatCircleBearing = (start, end) => {
     const startLat = start.latitude * Math.PI / 180;
     const startLng = start.longitude * Math.PI / 180;
@@ -44,85 +43,54 @@ function App() {
     return Math.round(R * c);
   };
 
-  // Smooth rotation function
-  const rotateCompass = (newAngle) => {
-    if (compassRef.current) {
-      rotationRef.current = newAngle;
-      compassRef.current.style.transform = `rotate(${newAngle}deg)`;
-      compassRef.current.style.transition = 'transform 0.3s ease-out';
-    }
-  };
-
-  // Request location permission and start watching
+  // Get current location
   useEffect(() => {
-    const startLocationTracking = async () => {
-      if (!navigator.geolocation) {
-        setPermissionStatus('not-supported');
-        return;
-      }
+    if (!navigator.geolocation) {
+      setPermissionStatus('not-supported');
+      return;
+    }
 
-      try {
-        // Request high accuracy location
-        const position = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
-          });
-        });
-
-        const coords = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude
-        };
+    navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const newLocation = { latitude, longitude };
+        setUserLocation(newLocation);
+        setDistance(calculateDistance(newLocation, targetCoords));
         
-        setUserLocation(coords);
-        setDistance(calculateDistance(coords, targetCoords));
+        const bearing = getGreatCircleBearing(newLocation, targetCoords);
+        setBearingToTarget(bearing);
         setPermissionStatus('granted');
-
-        // Start watching position changes
-        navigator.geolocation.watchPosition(
-          (position) => {
-            const newCoords = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude
-            };
-            setUserLocation(newCoords);
-            setDistance(calculateDistance(newCoords, targetCoords));
-          },
-          (error) => console.log('Location watch error:', error),
-          {
-            enableHighAccuracy: true,
-            timeout: 5000,
-            maximumAge: 1000
-          }
-        );
-
-      } catch (error) {
-        console.log('Location permission denied:', error);
+      },
+      (error) => {
+        console.log('Location error:', error);
         setPermissionStatus('denied');
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 1000
       }
-    };
-
-    startLocationTracking();
+    );
   }, []);
 
-  // Start device orientation tracking
+  // Get device orientation
   useEffect(() => {
     const handleOrientation = (event) => {
       let heading = null;
       
+      // Try webkitCompassHeading first (iOS)
       if (event.webkitCompassHeading !== undefined) {
         heading = event.webkitCompassHeading;
       } else if (event.alpha !== null) {
         heading = event.alpha;
+        // Adjust for iOS devices
         if (navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')) {
           heading = 360 - heading;
         }
       }
       
-      if (heading !== null) {
-        setUserHeading(heading);
+      if (typeof heading === 'number') {
+        setDeviceHeading(heading);
       }
     };
 
@@ -131,13 +99,15 @@ function App() {
         try {
           const permission = await DeviceOrientationEvent.requestPermission();
           if (permission === 'granted') {
-            window.addEventListener('deviceorientation', handleOrientation);
+            window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+            window.addEventListener('deviceorientation', handleOrientation, true);
           }
         } catch (error) {
           console.log('Orientation permission denied:', error);
         }
       } else {
-        window.addEventListener('deviceorientation', handleOrientation);
+        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+        window.addEventListener('deviceorientation', handleOrientation, true);
       }
     };
 
@@ -146,34 +116,21 @@ function App() {
     }
 
     return () => {
+      window.removeEventListener('deviceorientationabsolute', handleOrientation);
       window.removeEventListener('deviceorientation', handleOrientation);
     };
   }, [permissionStatus]);
 
-  // Update compass rotation based on heading and bearing
+  // Calculate rotation for compass arrow
+  const rotation = userLocation ? (bearingToTarget - deviceHeading + 360) % 360 : 0;
+
+  // Apply rotation to compass
   useEffect(() => {
-    if (userLocation && userHeading !== null) {
-      const bearing = getGreatCircleBearing(userLocation, targetCoords);
-      let newAngle = bearing - userHeading;
-      
-      // Normalize angle difference for smooth rotation
-      let delta = newAngle - angle;
-      while (delta > 180 || delta < -180) {
-        if (delta > 180) {
-          newAngle -= 360;
-        } else if (delta < -180) {
-          newAngle += 360;
-        }
-        delta = newAngle - angle;
-      }
-      
-      // Only update if change is significant (reduces jitter)
-      if (Math.abs(delta) > 2) {
-        setAngle(newAngle);
-        rotateCompass(newAngle);
-      }
+    if (compassRef.current && userLocation) {
+      compassRef.current.style.transform = `rotate(${rotation}deg)`;
+      compassRef.current.style.transition = 'transform 0.3s ease-out';
     }
-  }, [userHeading, userLocation, angle]);
+  }, [rotation, userLocation]);
 
   const requestPermissions = async () => {
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -185,6 +142,8 @@ function App() {
       } catch (error) {
         console.log('Permission request failed:', error);
       }
+    } else {
+      setPermissionStatus('granted');
     }
   };
 
@@ -219,17 +178,15 @@ function App() {
           </div>
 
           {/* Distance display */}
-          {distance && (
-            <div className="center-distance">
-              {distance}m
-            </div>
-          )}
+          <div className="center-distance">
+            {distance ? `${distance}m` : 'Ready'}
+          </div>
         </div>
 
         {/* Instructions */}
         <div className="instructions">
           {permissionStatus === 'unknown' && (
-            <p>Requesting location and orientation permissions...</p>
+            <p>Requesting location permissions...</p>
           )}
           {permissionStatus === 'denied' && (
             <div>
@@ -238,24 +195,19 @@ function App() {
             </div>
           )}
           {permissionStatus === 'not-supported' && (
-            <p>Device orientation not supported on this device</p>
+            <p>Geolocation not supported on this device</p>
           )}
           {permissionStatus === 'granted' && !userLocation && (
             <p>Getting your location...</p>
           )}
-          {permissionStatus === 'granted' && userLocation && userHeading === null && (
-            <div>
-              <p>Location found! Now requesting compass access...</p>
-              <button onClick={requestPermissions} className="permission-btn">
-                Enable Compass
-              </button>
-            </div>
-          )}
-          {permissionStatus === 'granted' && userLocation && userHeading !== null && (
+          {permissionStatus === 'granted' && userLocation && (
             <div>
               <p>🧭 Compass active and pointing to target!</p>
               <p>📍 Distance: {distance}m</p>
               <p>🎯 Follow the arrow to reach your destination</p>
+              <button onClick={requestPermissions} className="permission-btn">
+                Enable Compass
+              </button>
             </div>
           )}
         </div>
