@@ -1,0 +1,207 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+.compass-app {
+  width: 100vw;
+  height: 100vh;
+  background: #fcd030;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.compass-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  z-index: 1;
+}
+
+.compass {
+  width: min(80vw, 80vh, 400px);
+  height: min(80vw, 80vh, 400px);
+  position: relative;
+  border-radius: 50%;
+  background: transparent;
+  border: 4px solid #000000;
+  cursor: pointer;
+  transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.compass:hover {
+  /* No hover effects for minimal design */
+}
+
+.compass-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.tick-mark {
+  position: absolute;
+  top: 5%;
+  left: 50%;
+  transform-origin: 0 calc(50vh * 0.36);
+  background: #000;
+}
+
+.tick-mark.cardinal-tick {
+  height: 8%;
+  width: 4px;
+}
+
+.tick-mark.intercardinal-tick {
+  height: 6%;
+  width: 2px;
+}
+
+/* Store direction arrow */
+.store-arrow {
+  position: absolute;
+  top: 8%;
+  left: 50%;
+  transform-origin: 50% 200px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 12px solid #000;
+  transform: translateX(-50%);
+}
+
+/* Center distance display */
+.center-distance {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #000;
+  background: rgba(252, 208, 48, 0.9);
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #000;
+}
+
+.degree-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  background: #fcd030;
+  padding: 1rem 1.5rem;
+  border-radius: 12px;
+  border: 2px solid #000;
+}
+
+.degree-value {
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-weight: 700;
+  color: #000;
+  font-variant-numeric: tabular-nums;
+  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.degree-label {
+  font-size: clamp(0.7rem, 1.8vw, 0.9rem);
+  color: #000;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 500;
+}
+
+.location-info {
+  font-size: clamp(0.6rem, 1.5vw, 0.8rem);
+  color: #666;
+  font-weight: 400;
+  margin-top: 0.2rem;
+}
+
+.instructions {
+  text-align: center;
+  color: #000;
+  font-size: clamp(0.8rem, 2vw, 1rem);
+  background: #fcd030;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  border: 2px solid #000;
+  max-width: 90vw;
+  font-weight: 500;
+}
+
+.instructions p {
+  margin: 0;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .compass-container {
+    gap: 1.5rem;
+  }
+  
+  .compass {
+    width: min(85vw, 85vh);
+    height: min(85vw, 85vh);
+  }
+  
+  .degree-display {
+    padding: 0.75rem 1.5rem;
+  }
+  
+  .instructions {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .compass {
+    width: min(90vw, 90vh);
+    height: min(90vw, 90vh);
+  }
+  
+  .compass-container {
+    gap: 1rem;
+  }
+}
+
+/* Landscape mobile */
+@media (max-height: 600px) and (orientation: landscape) {
+  .compass-container {
+    flex-direction: row;
+    gap: 2rem;
+  }
+  
+  .compass {
+    width: min(70vh, 70vw);
+    height: min(70vh, 70vw);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .compass {
+    transition: none;
+  }
+}
